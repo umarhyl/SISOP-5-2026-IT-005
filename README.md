@@ -7,7 +7,9 @@
 | Kode Asisten  | KENZ      |
 
 # Struktur Repositori:
-```SISOP-5-2026-IT-005/
+```
+SISOP-5-2026-IT-005/
+├── assets/
 ├── soal_1/
 │   ├── .config
 │   ├── backup.sh
@@ -17,6 +19,14 @@
 │   ├── osboot/
 │   ├── qemu.sh
 │   └── single.sh
+├── soal_2/
+│   ├── bochsrc.txt
+│   ├── bootloader.asm
+│   ├── build.sh
+│   ├── kernel.asm
+│   ├── kernel.c
+│   ├── Makefile
+│   ├── README.md
 └── README.md
 ```
 
@@ -385,3 +395,123 @@ rm -f "${existing[@]}"
 
 - **Fuse Test**
 ![FUSE](/assets/soal_1/fuse.png)
+
+## Soal 2: Season
+Pada soal nomor 2 diminta untuk melanjutkan pembuatan template sistem operasi minimalis 16-bit yang dijalankan menggunakan emulator Bochs. Tugas utamanya adalah menyelesaikan implementasi bahasa tingkat rendah untuk membaca keystroke pengguna , dan mengimplementasikan berbagai perintah pada shell OS menggunakan bahasa C , yaitu `check` , operasi matematika (`add`, `sub`, `fac`) , manipulasi warna CLI (`season`) , pencetakan pola layar (`triangle`) , serta (`clear`, `help`).
+
+### 1. Membaca Input Pengguna (`_getChar` pada `kernel.asm`)
+```asm
+_getChar:
+
+    mov ah, 0
+    int 0x16
+
+    ret
+```
+Logikanya, program menggunakan BIOS interrupt `0x16` dengan parameter `AH = 0`. Interupsi ini akan menghentikan proses (blocking) hingga pengguna menekan tombol pada keyboard. Karakter yang ditekan akan disimpan pada register `AL`. Saat perintah `ret` dipanggil, bahasa C (`kernel.c`) akan menangkap nilai return ini melalui fungsi integrasi.
+
+### 2. `add` & `sub`
+```c
+          else if (startsWith(cmd, "add ")) {
+            i = 4;
+            j = 0;
+            while (cmd[i] != ' ' && cmd[i] != 0) {
+                num1[j] = cmd[i];
+                i++;
+                j++;
+            }
+            num1[j] = 0;
+
+            ...
+
+            a = atoi(num1);
+            b = atoi(num2);
+            result = a + b;
+            intToString(result, out);
+            printString(out);
+        }
+```
+Untuk penambahan (`add`) maupun pengurangan (`sub`), program mendeteksi perintah dengan fungsi kustom `startsWith`. Karena argument dipisah dengan spasi, program menggunakan iterasi `while` untuk mengekstrak string `num1` dan `num2`. Kedua string ini diubah menjadi tipe integer lewat fungsi manual `atoi()`. Setelah operasi penjumlahan atau pengurangan dieksekusi, nilai diubah kembali menjadi tipe string lewat fungsi `intToString()` untuk bisa dicetak ke layar melalui `printString()`.
+
+### 3. `fac` (Faktorial)
+```c
+        else if (startsWith(cmd, "fac ")) {
+            // ... ekstraksi argumen n ...
+            n = atoi(num1);
+
+            if (n > 7) {
+                printString("know your limit little bro.");
+            } else {
+                result = factorial(n);
+                intToString(result, out);
+                printString(out);
+            }
+        }
+```
+Setelah argumen diekstrak dan di-parsing ke integer `n`, program melakukan pengecekan keamanan. Jika `n > 7`, nilai faktorial akan melampaui batasan kapasitas bilangan 16-bit, sehingga program menolak eksekusi dan mencetak `know your limit little bro.`. Jika aman (`n <= 7`), fungsi dasar `factorial()` yang menggunakan `while` loop dijalankan, dan hasilnya dicetak.  
+
+### 4. `season`
+```c
+void setColor(char c) {
+    color = c;
+}
+
+void printColored(char* str, char c) {
+    setColor(c);
+    printString(str);
+}
+// ...
+        else if (strcmp(cmd, "season winter")) {
+            printColored("winter mode", 0x09);
+        }
+// ...
+```
+Sistem VGA pada Bochs memetakan video memory pada alamat asal `0xB800`. Pada antarmuka teks ini, satu karakter direpresentasikan oleh dua buah byte berdekatan: satu untuk nilai ASCII, dan sebelahnya untuk nilai atribut warna. Saat pengguna mengganti season, fungsi `printColored` memanggil `setColor` yang akan memodifikasi variabel `char color` global. Karakter warna spesifik (contohnya `0x09` untuk winter, `0x0E` untuk summer)  disisipkan otomatis setiap fungsi dasar `putInMemory()` menulis ke alamat VRAM.  
+
+### 5. `triangle`
+```c
+        else if (startsWith(cmd, "triangle ")) {
+            // ... ekstraksi argumen n ...
+            n = atoi(num1);
+            i = 1;
+
+            while (i <= n) {
+                j = 0;
+                while (j < i) {
+                    printChar('x');
+                    j++;
+                }
+                newline();
+                i++;
+            }
+        }
+```
+Program mengambil parameter `n` ukuran segitiga. Karena compiler `bcc` yang dikonfigurasikan sangat berpegang pada standar ANSI C lawas di mana sintaks `for` terkadang bermasalah pada loop bersarang, program memanfaatkan dua `while` loop. Loop pertama (`i`) mengontrol penambahan baris, dan loop dalam (`j`) mencetak karakter `'x'`  berurutan secara horizontal sampai menyamai iterasi kolom. Setiap kali blok loop dalam selesai, instruksi `newline()` dipanggil untuk turun ke baris VRAM di bawahnya.  
+
+### 6. `clear`, `help`, & `about`
+```c
+        else if (strcmp(cmd, "clear")) {
+            color = 0x07;
+            clearScreen();
+        }
+        else if (strcmp(cmd, "help")) {
+            printString("check add sub fac season triangle clear about");
+        }
+        else if (strcmp(cmd, "about")) {
+            printString("Assistant's Last Gift by MINT");
+        }
+```
+Untuk mengimplementasikan `clear`, program mereset variabel `color` ke nilai bawaan `0x07` (abu-abu/putih), lalu memanggil `clearScreen()`. Fungsi `clearScreen()` menimpa keseluruhan buffer layar (sebanyak 4000 ruang memori; 80 kolom * 25 baris * 2 byte) dengan karakter spasi `' '` serta memutar variabel koordinat layar (`cursor`) kembali ke posisi nol (pojok kiri atas layar). Instruksi `help` dan `about` melakukan pemanggilan standar `printString` untuk mengeluarkan string referensi command sistem.
+
+### 7. Proof of Concept
+- **Command `add`, `sub`, `fac`**
+![Add Sub Fac](/assets/soal_2/add_sub_fac.png)
+
+- **Command `season`**
+![Season](/assets/soal_2/season.png)
+
+- **Command `triangle`**
+![Triangle](/assets/soal_2/triangle.png)
+
+- **Command `all`**
+![Clear Help About](/assets/soal_2/all.gif)
