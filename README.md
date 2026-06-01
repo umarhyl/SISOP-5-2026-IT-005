@@ -296,7 +296,7 @@ grub-mkrescue -o "${ISO_PATH}" "${ISO_ROOT}"
 ```
 Seluruh struktur ISO kemudian dikompilasi menjadi file bootable `farewell.iso`.
 
-5. `qemu.sh` - Booting Sistem Operasi
+### 5. `qemu.sh` - Booting Sistem Operasi
 Script ini digunakan untuk menjalankan sistem operasi menggunakan QEMU sesuai mode yang dipilih pengguna.
 
 ```sh
